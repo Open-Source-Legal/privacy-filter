@@ -18,10 +18,11 @@ class Label(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class Detection:
-    label: Label
+    entity_group: Label
     start: int
     end: int
     score: float
+    word: str
 
     def __post_init__(self) -> None:
         if self.start < 0:
