@@ -34,7 +34,6 @@ class HuggingFaceDetector:
             tokenizer=tokenizer,
             aggregation_strategy="none",
         )
-        self._id2label: dict[int, str] = dict(model.config.id2label)
         self._model_id = model_id
         resolved = getattr(model.config, "_commit_hash", None) or revision or "unknown"
         self._revision = str(resolved)
