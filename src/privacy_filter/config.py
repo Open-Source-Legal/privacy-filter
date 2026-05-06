@@ -15,7 +15,7 @@ class Settings(BaseSettings):
         protected_namespaces=(),
     )
 
-    api_keys: Annotated[frozenset[str], NoDecode] = Field(default_factory=frozenset)
+    api_keys: Annotated[frozenset[str], NoDecode]
     max_input_chars: Annotated[int, Field(ge=1)] = 50_000
     max_body_bytes: Annotated[int, Field(ge=1)] = 262_144
     model_id: str = "openai/privacy-filter"

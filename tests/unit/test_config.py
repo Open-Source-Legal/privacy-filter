@@ -15,6 +15,12 @@ def test_settings_rejects_empty_api_keys(monkeypatch: pytest.MonkeyPatch) -> Non
         Settings()
 
 
+def test_settings_rejects_missing_api_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("API_KEYS", raising=False)
+    with pytest.raises(ValueError, match=r"api_keys|API_KEYS"):
+        Settings()
+
+
 def test_settings_strips_whitespace_and_drops_empties(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
