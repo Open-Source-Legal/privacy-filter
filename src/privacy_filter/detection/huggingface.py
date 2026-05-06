@@ -23,11 +23,11 @@ class HuggingFaceDetector:
 
         kwargs: dict[str, Any] = {"revision": revision} if revision else {}
         tokenizer = AutoTokenizer.from_pretrained(model_id, **kwargs)
-        model = AutoModelForTokenClassification.from_pretrained(
-            model_id,
-            device_map="auto",
-            **kwargs,
-        )
+        # Note: not passing `device_map="auto"` — that requires the `accelerate`
+        # package and is overkill for this model. transformers will place the
+        # model on the default device (CPU unless CUDA is available and the
+        # caller moves it explicitly).
+        model = AutoModelForTokenClassification.from_pretrained(model_id, **kwargs)
         self._pipeline = pipeline(
             task="token-classification",
             model=model,
