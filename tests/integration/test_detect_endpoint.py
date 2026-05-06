@@ -54,16 +54,6 @@ async def test_detect_rejects_wrong_api_key(client: AsyncClient) -> None:
     assert r.status_code == 401
 
 
-@pytest.mark.xfail(
-    reason=(
-        "routes.py raises a plain pydantic.ValidationError from the inline "
-        "bounded_detect_request check; the app currently has no handler for "
-        "that exception class so it falls through to the Exception catchall "
-        "and returns 500/internal_error instead of 422/invalid_request. "
-        "Source fix tracked separately."
-    ),
-    strict=True,
-)
 @pytest.mark.asyncio
 async def test_detect_rejects_oversized_text(client: AsyncClient, api_key: str) -> None:
     huge = "a" * 200  # MAX_INPUT_CHARS=100 in fixtures
