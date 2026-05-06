@@ -9,6 +9,7 @@ htmlcov
 docs
 tests
 *.md
+!README.md
 .env
 .env.local
 hf_cache
