@@ -1,0 +1,17 @@
+.git
+.venv
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.hypothesis
+.coverage
+htmlcov
+docs
+tests
+*.md
+.env
+.env.local
+hf_cache
+__pycache__
+.secrets.baseline
+.pre-commit-config.yaml
