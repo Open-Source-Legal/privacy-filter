@@ -1,17 +1,18 @@
 # Privacy Filter Microservice — Design
 
 **Date:** 2026-05-05
-**Status:** Approved (pending written-spec review)
+**Status:** Approved (revised 2026-05-05 — redaction removed from V1 scope)
 **Owner:** scrudato@umich.edu
 
 ## Purpose
 
-A FastAPI microservice that detects and redacts personally identifiable information (PII) in plain-text input. The service is stateless, containerized, and designed for high-throughput on-premises deployment behind an internal API gateway. The detection backend is the HuggingFace token-classification model `openai/privacy-filter`, accessed through a pluggable `Detector` interface so the model can be swapped without API changes.
+A FastAPI microservice that detects personally identifiable information (PII) in plain-text input and returns the structured detection spans. The service is stateless, containerized, and designed for high-throughput on-premises deployment behind an internal API gateway. The detection backend is the HuggingFace token-classification model `openai/privacy-filter`, accessed through a pluggable `Detector` interface so the model can be swapped without API changes.
 
-V1 scope is intentionally narrow: plain text in, structured detections plus a redacted string out. File ingestion, async job queues, multi-tenant key management, and rate limiting are explicitly out of scope and will be designed separately if needed.
+V1 scope is intentionally narrow: plain text in, structured detection spans out. The service does **not** produce a redacted string — callers act on the spans however they need to (mask, replace, route, audit). File ingestion, async job queues, multi-tenant key management, and rate limiting are explicitly out of scope and will be designed separately if needed.
 
 ## Non-goals (V1)
 
+- **Redaction / masking of input text.** The service returns spans; the caller decides how to use them.
 - File upload or document parsing (PDF, DOCX, etc.)
 - Asynchronous job submission / polling
 - Per-tenant quotas or rate limiting
@@ -34,7 +35,6 @@ src/privacy_filter/
     middleware.py   # request-id, security headers, body-size guard
   detection/
     protocol.py     # Detector Protocol, Detection dataclass, label enum
-    redact.py       # apply_spans(text, detections) -> redacted text
     huggingface.py  # HuggingFaceDetector implementation (optional extra)
     fake.py         # FakeDetector for tests
   config.py         # pydantic-settings, env-driven
@@ -60,9 +60,14 @@ class Detector(Protocol):
     def detect(self, text: str) -> list[Detection]: ...
 ```
 
-`Detection` carries `(label: Label, start: int, end: int, score: float)` with character offsets in the original input string. `Label` is a `StrEnum` covering the 8 categories the model emits: `account_number`, `private_address`, `private_email`, `private_person`, `private_phone`, `private_url`, `private_date`, `secret`.
+`Detection` carries `(entity_group: Label, start: int, end: int, score: float, word: str)`:
 
-The `HuggingFaceDetector` wraps the `transformers` token-classification pipeline for `openai/privacy-filter`, performs constrained Viterbi BIOES decoding (the model card describes this), and maps subword spans back to character offsets via the tokenizer's `offset_mapping`. It exposes `model_revision` as the resolved HuggingFace commit SHA so callers can detect drift.
+- `entity_group` is one of 8 categories: `account_number`, `private_address`, `private_email`, `private_person`, `private_phone`, `private_url`, `private_date`, `secret`. (Internally a `StrEnum` named `Label`; over the wire it's a plain string.)
+- `start` / `end` are character offsets in the original input string (Python slice semantics).
+- `score` is the per-span confidence reported by the BIOES grouper (see below).
+- `word` is the literal substring `text[start:end]` — included so callers can audit detections without re-tokenizing.
+
+The `HuggingFaceDetector` runs the `transformers` token-classification pipeline for `openai/privacy-filter` with `aggregation_strategy="none"` to get per-subword tags, then applies a small **BIOES grouper** that collapses contiguous `B-X / I-X / E-X` runs (and standalone `S-X`) into spans, takes the minimum score across the run, maps offsets via the tokenizer's `offset_mapping`, and emits one `Detection` per group. Stock HF aggregation strategies are BIO-aware, not BIOES-aware, so we own the grouping rather than relying on `aggregation_strategy="simple"`/`"first"`. It exposes `model_revision` as the resolved HuggingFace commit SHA so callers can detect drift.
 
 The detector is constructed once during the FastAPI `lifespan` and held on `app.state`. Routes receive it through a dependency provider, which integration tests override with `FakeDetector`.
 
@@ -97,18 +102,24 @@ The detector is constructed once during the FastAPI `lifespan` and held on `app.
 ```json
 {
   "detections": [
-    { "label": "private_email", "start": 12, "end": 31, "score": 0.98 }
+    {
+      "entity_group": "private_email",
+      "score": 0.98,
+      "word": "alice@example.com",
+      "start": 12,
+      "end": 31
+    }
   ],
-  "redacted": "Contact me at [PRIVATE_EMAIL] tomorrow.",
   "model": "openai/privacy-filter",
   "model_revision": "<resolved HF commit SHA>"
 }
 ```
 
-- `label` is one of the 8 model labels, returned verbatim.
-- `start`/`end` are character offsets in the original `text` (Python slice semantics: `text[start:end]` is the matched span).
-- `score` is the minimum per-token softmax score across the span (conservative).
-- `redacted` is the original text with each detected span replaced by `[<LABEL_UPPER>]`. The redactor first resolves overlapping spans (which the model's BIOES decoder should not produce, but the redactor does not assume): keep the highest-scoring span; ties broken by earliest `start`, then longest length. The remaining non-overlapping spans are then applied in reverse offset order so earlier offsets stay valid during replacement.
+- `entity_group` is one of the 8 model labels, returned verbatim (matches HF pipeline naming).
+- `score` is the minimum per-token softmax score across the BIOES group (conservative aggregation).
+- `word` is `text[start:end]` — the literal matched substring.
+- `start` / `end` are character offsets in the original `text` (Python slice semantics: `text[start:end] == word`).
+- The service does not transform the input text. Spans are returned as-is from the detector. Callers that need overlap resolution or masking implement that themselves.
 
 ### `GET /healthz`
 
@@ -132,7 +143,7 @@ Validation errors (`422`) map to this envelope; field paths are included but fie
 
 - **Authentication:** `X-API-Key` compared in constant time against the set of keys in env var `API_KEYS` (comma-separated). No hashing — the deployment context (stateless container, secrets injected from a manager) does not justify the added complexity. Rationale captured in this spec to prevent re-litigation: an env-dump attacker has plaintext either way.
 - **Input bounds:** `MAX_INPUT_CHARS` enforced by Pydantic. ASGI body-size limit enforced in middleware. Both are configurable but default to safe values (50,000 chars / 256 KiB).
-- **Logging:** `structlog`. The PII-safe processor enforces an allowlist of fields per record: `request_id`, `endpoint`, `method`, `status`, `latency_ms`, `input_chars`, `detection_count`, plus error metadata (`code`, exception *class* name — never the exception message, which could contain user data). Any field not on the allowlist is dropped before emission. Raw input, redacted output, individual detections, query strings, and inbound headers are never logged. A test asserts that a sentinel input string never appears in any log record produced during a request.
+- **Logging:** `structlog`. The PII-safe processor enforces an allowlist of fields per record: `request_id`, `endpoint`, `method`, `status`, `latency_ms`, `input_chars`, `detection_count`, plus error metadata (`code`, exception *class* name — never the exception message, which could contain user data). Any field not on the allowlist is dropped before emission. Raw input, individual detections, query strings, and inbound headers are never logged. A test asserts that a sentinel input string never appears in any log record produced during a request.
 - **Error handling:** Single exception handler converts all uncaught exceptions to the error envelope with `code="internal_error"` and a generic message. Detail (including the exception traceback) is logged with the request_id, never returned.
 - **Headers:** Middleware sets `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`. HSTS is delegated to the ingress.
 - **CORS:** Disabled by default. Enabled only via explicit env-driven origin allowlist.
@@ -145,12 +156,12 @@ TDD is the default workflow: red → green → refactor. The detector boundary k
 
 **Pyramid:**
 
-1. **Unit, pure logic.** `detection/redact.py` (span application; off-by-one boundaries; multi-byte text including emoji and combining marks; overlapping-span resolution; empty spans; deterministic ordering of detections in output). `detection/protocol.py` validators (`start <= end`, `score in [0,1]`, label is a known enum member). `security.py` constant-time compare (correctness; doesn't short-circuit on length; rejects empty / missing / wrong).
+1. **Unit, pure logic.** `detection/protocol.py` validators (`start <= end`, `score in [0, 1]`, `entity_group` is a known enum member, `word == text[start:end]` invariant is the caller's responsibility). `detection/bioes.py` BIOES grouper (collapse `B/I/E`, standalone `S`, ignore `O`, take min score; verify on realistic tag sequences). `security.py` constant-time compare (correctness; doesn't short-circuit on length; rejects empty / missing / wrong).
 
-2. **Contract suite over `Detector` Protocol.** A parameterized test module that any `Detector` implementation must pass: returns valid spans, offsets index real characters of the input, labels come from the closed set, idempotent on identical input. Always runs against `FakeDetector`; runs against `HuggingFaceDetector` only when `-m slow` is enabled.
+2. **Contract suite over `Detector` Protocol.** A parameterized test module that any `Detector` implementation must pass: returns valid spans, offsets index real characters of the input (`text[d.start:d.end] == d.word`), `entity_group` comes from the closed set, idempotent on identical input. Always runs against `FakeDetector`; runs against `HuggingFaceDetector` only when `-m slow` is enabled.
 
 3. **Integration, FastAPI app.** `httpx.AsyncClient` over ASGI transport with the `Detector` dependency overridden to `FakeDetector`:
-   - 200 happy path with shape and redaction assertions
+   - 200 happy path with detection shape assertions (`entity_group`, `word`, `start`, `end`, `score`)
    - 401 on missing / wrong API key
    - 413 on oversized body, 422 on malformed JSON / wrong types / empty text
    - `/healthz` always 200; `/readyz` is 503 before lifespan completes, 200 after
@@ -158,8 +169,6 @@ TDD is the default workflow: red → green → refactor. The detector boundary k
    - Error envelope shape; no stack traces leak in 500 responses (induce by injecting a detector that raises).
 
 4. **Slow tests** (`-m slow`, off by default). Loads `openai/privacy-filter` once per session and exercises a handful of golden inputs covering each of the 8 labels. Run on `main` and on a nightly schedule. The HF model cache is keyed in CI for reuse.
-
-**Property-based tests.** `hypothesis` strategies generate random text and random non-overlapping spans; redaction invariants checked: redacted length equals original length minus span lengths plus replacement lengths; no character of any redacted span survives at its original offset; output is deterministic given the same input.
 
 **Tooling discipline:**
 
@@ -214,8 +223,8 @@ Image runs as a non-root user. `HEALTHCHECK` calls `/healthz`. Model weights are
 
 - All endpoints implemented and covered by integration tests using `FakeDetector`
 - `HuggingFaceDetector` passes the contract suite under `-m slow`
+- BIOES grouper unit-tested against representative tag sequences
 - ruff, mypy --strict, pip-audit all clean in CI
-- Property-based redaction tests passing
 - PII-in-logs guard test passing
 - Dockerfile builds and the container passes `/healthz` and `/readyz`
 - `CLAUDE.md` documents commands and architecture for future Claude Code sessions

@@ -2,7 +2,18 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a stateless FastAPI microservice that detects and redacts PII in plain text, backed by the HuggingFace `openai/privacy-filter` model accessed through a pluggable `Detector` interface.
+## Revisions (2026-05-05)
+
+After Task 1 + Task 2 landed, V1 scope was tightened:
+
+1. **Redaction is removed.** The service returns detection spans only. There is no `redacted` string in the response and no `redact.py` module.
+2. **Detection shape uses HF pipeline naming**: each detection is `{entity_group, score, word, start, end}`. Internally `Detection.label` is renamed to `Detection.entity_group` (still typed `Label`) and a `word: str` field is added.
+3. **HF detector path is "pipeline raw + own BIOES grouper"** (option B). A new `detection/bioes.py` module groups per-subword BIOES tags into spans; we don't rely on stock HF `aggregation_strategy` because it isn't BIOES-aware.
+4. **Tasks affected:** Task 3 (apply_spans) is removed entirely. Task 16 (property-based redaction tests) is removed entirely. Task 2's committed code needs an amendment commit (rename + add `word`). Tasks 4, 5, 9, 13, 14, 17 use the new shape — implementer prompts will carry the updated code; the literal task bodies below are kept as historical reference but their old shape supersedes them only where not overridden.
+
+The authoritative current contract is in `docs/superpowers/specs/2026-05-05-privacy-filter-microservice-design.md`.
+
+**Goal (revised):** Build a stateless FastAPI microservice that detects PII in plain text and returns BIOES-grouped spans, backed by the HuggingFace `openai/privacy-filter` model accessed through a pluggable `Detector` interface.
 
 **Architecture:** `src/`-layout Python package. Single-process FastAPI app loaded via factory + lifespan; the detector lives on `app.state` and is injected via a FastAPI dependency that integration tests override with a `FakeDetector`. All ML deps (`transformers`, `torch`) are an optional `[hf]` extra so the bulk of the test suite runs without them. TDD throughout: every behavior is driven by a failing test before implementation lands.
 
