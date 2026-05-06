@@ -74,6 +74,7 @@ async def test_detect_rejects_empty_text(client: AsyncClient, api_key: str) -> N
         json={"text": ""},
     )
     assert r.status_code == 422
+    assert r.json()["error"]["code"] == "invalid_request"
 
 
 @pytest.mark.asyncio
@@ -84,6 +85,7 @@ async def test_detect_rejects_extra_fields(client: AsyncClient, api_key: str) ->
         json={"text": "hi", "mode": "all"},
     )
     assert r.status_code == 422
+    assert r.json()["error"]["code"] == "invalid_request"
 
 
 @pytest.mark.asyncio
