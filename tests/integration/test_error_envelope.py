@@ -22,18 +22,6 @@ class _BoomDetector(FakeDetector):
         raise RuntimeError("synthetic failure: alice@example.com")
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Middleware uses starlette.middleware.base.BaseHTTPMiddleware, which "
-        "re-raises exceptions through its memory-stream machinery even after "
-        "FastAPI's ExceptionMiddleware has converted them to a JSON 500 "
-        "response. Over httpx ASGITransport that bubbled-up exception is "
-        "raised on the client side instead of returning the generic envelope. "
-        "Source fix (convert middleware to pure ASGI) tracked separately."
-    ),
-    strict=True,
-    raises=RuntimeError,
-)
 @pytest.mark.asyncio
 async def test_unhandled_error_returns_generic_envelope(settings: Settings, api_key: str) -> None:
     def factory(_s: Settings) -> _BoomDetector:

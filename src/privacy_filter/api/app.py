@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
+from starlette.types import ASGIApp
 
 from privacy_filter.config import Settings
 from privacy_filter.detection.protocol import Detector
@@ -19,6 +20,7 @@ from .middleware import (
     BodySizeLimitMiddleware,
     RequestIDMiddleware,
     SecurityHeadersMiddleware,
+    SuppressHandledExceptionMiddleware,
 )
 from .routes import router, v1
 
@@ -105,5 +107,20 @@ def create_app(
             code="internal_error",
         )
         return JSONResponse(status_code=500, content=error_envelope(exc, request_id=rid))
+
+    # Starlette's ``ServerErrorMiddleware`` (which Starlette/FastAPI install
+    # outside any user middleware) always re-raises the original exception
+    # after invoking the registered 500 handler. Under ``httpx.ASGITransport``
+    # that re-raise bubbles to the test client and prevents the JSON envelope
+    # from being observed. We override ``build_middleware_stack`` so that the
+    # entire built stack is wrapped one more time — outside ServerErrorMiddleware
+    # — by ``SuppressHandledExceptionMiddleware``, which silently absorbs the
+    # re-raised exception once a response has already been sent.
+    _original_build = app.build_middleware_stack
+
+    def _build_with_suppression() -> ASGIApp:
+        return SuppressHandledExceptionMiddleware(_original_build())
+
+    app.build_middleware_stack = _build_with_suppression  # type: ignore[method-assign]
 
     return app
