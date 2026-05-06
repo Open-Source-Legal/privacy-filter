@@ -1,33 +1,63 @@
-"""Placeholder stub for the real HuggingFace token-classification detector.
+"""HuggingFace token-classification detector for openai/privacy-filter.
 
-Task 17 replaces this module with the real torch/transformers implementation.
-Kept here so the ``Detector`` Protocol type is satisfied at import/typecheck
-time without requiring heavy ML dependencies in test runs.
+Imports of ``transformers`` and ``torch`` are deferred to construction so
+the rest of the codebase can be type-checked and tested without the
+optional ``[hf]`` extra installed.
 """
 
 from __future__ import annotations
 
+from typing import Any
+
+from .bioes import TaggedToken, group_bioes
 from .protocol import Detection
 
 
 class HuggingFaceDetector:
-    """Placeholder for the real HF token-classification detector.
-
-    Construction raises ``NotImplementedError`` so that any code path that
-    actually instantiates this class (rather than just importing the symbol)
-    fails loudly until Task 17 lands.
-    """
-
     def __init__(self, *, model_id: str, revision: str | None = None) -> None:
-        raise NotImplementedError("HuggingFaceDetector is not yet implemented (see Task 17).")
+        from transformers import (
+            AutoModelForTokenClassification,
+            AutoTokenizer,
+            pipeline,
+        )
+
+        kwargs: dict[str, Any] = {"revision": revision} if revision else {}
+        tokenizer = AutoTokenizer.from_pretrained(model_id, **kwargs)
+        model = AutoModelForTokenClassification.from_pretrained(
+            model_id,
+            device_map="auto",
+            **kwargs,
+        )
+        self._pipeline = pipeline(
+            task="token-classification",
+            model=model,
+            tokenizer=tokenizer,
+            aggregation_strategy="none",
+        )
+        self._id2label: dict[int, str] = dict(model.config.id2label)
+        self._model_id = model_id
+        resolved = getattr(model.config, "_commit_hash", None) or revision or "unknown"
+        self._revision = str(resolved)
 
     @property
-    def model_id(self) -> str:  # pragma: no cover - placeholder
-        raise NotImplementedError
+    def model_id(self) -> str:
+        return self._model_id
 
     @property
-    def model_revision(self) -> str:  # pragma: no cover - placeholder
-        raise NotImplementedError
+    def model_revision(self) -> str:
+        return self._revision
 
-    def detect(self, text: str) -> list[Detection]:  # pragma: no cover - placeholder
-        raise NotImplementedError
+    def detect(self, text: str) -> list[Detection]:
+        if not text:
+            return []
+        raw = self._pipeline(text)
+        tokens = [
+            TaggedToken(
+                tag=str(item["entity"]),
+                score=float(item["score"]),
+                start=int(item["start"]),
+                end=int(item["end"]),
+            )
+            for item in raw
+        ]
+        return group_bioes(text, tokens)
