@@ -103,7 +103,7 @@ docker build -t privacy-filter .
 docker run --rm -p 8000:8000 -e API_KEYS=changeme privacy-filter
 ```
 
-The image runs as a non-root user (`uid 1001`), bakes the HF model weights in at build time, and includes a `HEALTHCHECK` against `/healthz`.
+The image runs as a non-root user (`uid 1001`) and includes a `HEALTHCHECK` against `/healthz`. The first container start downloads the HF model weights into the user's HF cache; mount a volume at `/home/app/.cache/huggingface` (or set `HF_HOME`) to persist them across container instances. Pre-baking weights into the image is a planned hardening for air-gapped deployments — see the design spec.
 
 ## Architecture
 
