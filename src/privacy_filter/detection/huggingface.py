@@ -19,9 +19,7 @@ class HuggingFaceDetector:
     """
 
     def __init__(self, *, model_id: str, revision: str | None = None) -> None:
-        raise NotImplementedError(
-            "HuggingFaceDetector is not yet implemented (see Task 17)."
-        )
+        raise NotImplementedError("HuggingFaceDetector is not yet implemented (see Task 17).")
 
     @property
     def model_id(self) -> str:  # pragma: no cover - placeholder
