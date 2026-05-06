@@ -7,8 +7,14 @@ from privacy_filter.detection.protocol import Detection, Label
 
 def test_label_values_match_model_card() -> None:
     expected = {
-        "account_number", "private_address", "private_email", "private_person",
-        "private_phone", "private_url", "private_date", "secret",
+        "account_number",
+        "private_address",
+        "private_email",
+        "private_person",
+        "private_phone",
+        "private_url",
+        "private_date",
+        "secret",
     }
     assert {member.value for member in Label} == expected
 

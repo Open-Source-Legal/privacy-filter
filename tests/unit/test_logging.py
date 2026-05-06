@@ -37,8 +37,16 @@ def test_allowlist_drops_disallowed_keys() -> None:
 
 def test_allowed_fields_match_spec() -> None:
     must_contain = {
-        "event", "request_id", "endpoint", "method", "status", "latency_ms",
-        "input_chars", "detection_count", "code", "exc_class",
+        "event",
+        "request_id",
+        "endpoint",
+        "method",
+        "status",
+        "latency_ms",
+        "input_chars",
+        "detection_count",
+        "code",
+        "exc_class",
     }
     assert must_contain <= ALLOWED_LOG_FIELDS
 
