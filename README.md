@@ -98,12 +98,36 @@ The fast suite uses a `FakeDetector` injected via `create_app(detector_factory=.
 
 ## Docker
 
+Build and run locally:
+
 ```bash
 docker build -t privacy-filter .
 docker run --rm -p 8000:8000 -e API_KEYS=changeme privacy-filter
 ```
 
 The image runs as a non-root user (`uid 1001`) and includes a `HEALTHCHECK` against `/healthz`. The first container start downloads the HF model weights into the user's HF cache; mount a volume at `/home/app/.cache/huggingface` (or set `HF_HOME`) to persist them across container instances. Pre-baking weights into the image is a planned hardening for air-gapped deployments — see the design spec.
+
+### Published images
+
+Tagged releases are built and pushed to GHCR by `.github/workflows/release.yml`. Push a SemVer tag (`vMAJOR.MINOR.PATCH`) and the workflow publishes:
+
+- `ghcr.io/open-source-legal/privacy-filter:1.2.3`
+- `ghcr.io/open-source-legal/privacy-filter:1.2`
+- `ghcr.io/open-source-legal/privacy-filter:1`
+- `ghcr.io/open-source-legal/privacy-filter:latest` (only for non-prerelease tags)
+
+Cutting a release:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Pulling:
+
+```bash
+docker pull ghcr.io/open-source-legal/privacy-filter:latest
+```
 
 ## Architecture
 
