@@ -20,7 +20,12 @@ jobs:
       - run: uv run ruff check
       - run: uv run ruff format --check
       - run: uv run mypy
-      - run: uv run pip-audit --strict
+      # Audit the resolved third-party deps via a frozen export. pip-audit
+      # can't resolve our local `privacy-filter` package on PyPI, so we exclude
+      # it via `--no-emit-project` and let --strict catch any unaudited
+      # third-party dep.
+      - run: uv export --frozen --no-emit-project --extra dev -o /tmp/requirements.txt
+      - run: uv run pip-audit --strict -r /tmp/requirements.txt
 
   test:
     runs-on: ubuntu-latest
