@@ -15,6 +15,20 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # The torch wheel + intermediate buildx layers exceed the default 14 GB
+      # of free disk on ubuntu-latest. Free up ~30 GB by removing preinstalled
+      # SDKs we don't need (Android, .NET, Haskell, etc.).
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
       - name: Lowercase image name
         id: image
         run: echo "name=ghcr.io/${REPO,,}" >> "$GITHUB_OUTPUT"
