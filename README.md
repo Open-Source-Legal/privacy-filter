@@ -105,7 +105,7 @@ docker build -t privacy-filter .
 docker run --rm -p 8000:8000 -e API_KEYS=changeme privacy-filter
 ```
 
-The image runs as a non-root user (`uid 1001`) and includes a `HEALTHCHECK` against `/healthz`. The first container start downloads the HF model weights into the user's HF cache; mount a volume at `/home/app/.cache/huggingface` (or set `HF_HOME`) to persist them across container instances. Pre-baking weights into the image is a planned hardening for air-gapped deployments — see the design spec.
+The image runs as a non-root user (`uid 1001`), includes a `HEALTHCHECK` against `/healthz`, and **bakes the HF model weights at build time** so cold starts and air-gapped deployments do not depend on outbound network. Build args `MODEL_ID` and `MODEL_REVISION` (defaulting to `openai/privacy-filter` at the resolved HEAD) control which weights ship in the image. The runtime sets `TRANSFORMERS_OFFLINE=1` and `HF_HUB_OFFLINE=1` so an accidentally-misconfigured runtime cannot reach the Hub. Torch is pinned to the CPU-only PyTorch wheel (`pytorch-cpu` index) so the image does not carry CUDA libs.
 
 ### Published images
 
